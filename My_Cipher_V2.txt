@@ -1,0 +1,324 @@
+//@version=4
+study("My Cipher v2", overlay=false)
+
+//  This indicator is a combination between the Cipher and divergence indicators available on TradingView.
+//  CIRCLES - SQUARES - DIAMOND:
+//  - Small circles outside the stochastic: WaveTrend wave crossings.
+//  - Green circle above the MFI bar: buy signal originated from specific values of rsi, stochastic and wavetrend.
+//  - Green and Red squares: divergences. 
+//  - Faint Green and Red squares: hidden divergences. 
+//  - Gold Diamond: When RSI is below 17, WaveTrend waves are below or equal to -80 and have crossed up after good bullish divergence. Possible trend change, stay tuned.
+//    - These signals are to help you understand what is happening, not to trade. ENJOY IT !!!
+
+ha_t = heikinashi(syminfo.tickerid)
+ha_close = security(ha_t, timeframe.period, close)
+ha_hlc3 = security(ha_t, timeframe.period, hlc3)
+
+map(input, inputMin, inputMax, outputMin, outputMax) =>
+    outputMin + ((outputMax - outputMin) / (inputMax - inputMin)) * (input - inputMin)
+
+color noColor = na
+zero = plot(0, title="Zero", color=noColor)
+
+
+// Stochastic Oscillator
+stochObLevel1 = 60
+stochObLevel2 = 53
+stochOsLevel1 = -60
+stochOsLevel2 = -53
+
+n1 = input(5, "STOCH Channel Length")
+n2 = input(3, "STOCH Average Length")
+stochSmooting = input(3, "STOCH Smoothing")
+ 
+ap = ha_hlc3 
+esa = ema(ap, n1)
+d = ema(abs(ap - esa), n1)
+ci = (ap - esa) / (0.015 * d)
+tci = ema(ci, n2)
+ 
+wt1 = tci
+wt2 = sma(wt1, stochSmooting)
+
+plot(wt1, color=#54b1e3, style=4, title="STOCH")
+plot(wt2, color=#00398a, transp=10, style=4, title="STOCH EMA")
+// Cross
+plot(crossover(wt1, wt2) ? wt2 : na, style=6, color=color.green, title="Cross over", linewidth=2)
+plot(crossunder(wt1, wt2) ? wt2 : na, style=6, color=color.red, title="Cross under", linewidth=2)
+// OB & OS levels
+plot(stochObLevel1, color=color.white, title="Overbought level 1", editable=false)
+plot(stochOsLevel1, color=color.white, title="Oversold level 1", editable=false)
+plot(stochObLevel2, color=color.white, style=6, transp=50, title="Overbought level 2", editable=false)
+plot(stochOsLevel2, color=color.white, style=6, transp=50, title="Oversold level 2", editable=false)
+
+
+// MFI
+mfiOsLevel = input(-8, "MFI Oversold level", minval=-50, maxval=0)
+source = ha_hlc3
+mfiLength = input(50, minval=1, title="MFI Period")
+mfiSmooth = input(9, minval=1, title="MFI Smoothing")
+value = high-low
+upper = sum(volume * (change(source) <= 0 ? 0 : value), mfiLength)
+lower = sum(volume * (change(source) >= 0 ? 0 : value), mfiLength)
+mfi = rsi(upper, lower) - 50
+mfi := sma(mfi, mfiSmooth)
+mfiPlot = plot(mfi, title="Money Flow Index", color=mfi>=0 ? color.green : color.red, linewidth=2)
+fill(mfiPlot, zero, color=mfi>=0 ? color.green : color.red, transp=60)
+
+
+// RSI
+rsiObLevel = 70
+rsiOsLevel = 30
+rsiPeriod = input(14, minval=1, title="RSI Period")
+rsiSource = ha_close
+up = rma(max(change(rsiSource), 0), rsiPeriod)
+down = rma(-min(change(rsiSource), 0), rsiPeriod)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+rsi := ema(rsi, 5)
+
+
+// VWAP
+fastLength = input(12, minval=1, title="MACD Fast MA Length"), slowLength=input(25,minval=1, title="MACD Slow MA Length")
+signalLength = input(9, title="MACD Signal Length")
+lengthz = input(20, title="Z-VWAP Length")
+lengthStdev = input(25, title="Stdev Length")
+A = input(1.0, minval=-2.0, maxval=2.0, title="MACZ constant A")
+B = input(1.0, minval=-2.0, maxval=2.0, title="MACZ constant B")
+
+calc_zvwap(pds) =>
+	mean = sum(volume*close,pds)/sum(volume,pds)
+	vwapsd = sqrt(sma(pow(close-mean, 2), pds) )
+	(close-mean)/vwapsd
+
+zscore = calc_zvwap(lengthz)
+fastMA = sma(source, fastLength)
+slowMA = sma(source, slowLength)
+macd = fastMA - slowMA
+macz_t=zscore*A+ macd/stdev(source, lengthStdev)*B
+signal=sma(macz_t, signalLength)
+hist=macz_t-signal
+plot(hist*10, color=color.yellow, style=plot.style_area, title="VWAP", transp=50)
+
+
+// indicator weightss
+sm2w = input(0.6, title="SM 2 Weight")
+mfiw = input(0.15, title="MFI Weight")
+rsiw = input(0.35, title="RSI Weight")
+
+// BUY signal
+buySignal(mom, momSmooth, rsi, mfi) =>
+    if crossover(mom, momSmooth) and momSmooth <= -25 and mfi <= -5
+        smval = momSmooth < stochOsLevel1 ? (stochOsLevel2-momSmooth)*sm2w : (stochOsLevel1-momSmooth)*sm2w
+        wsum = smval + (mfiOsLevel-mfi)*mfiw + (rsiOsLevel-rsi)*rsiw
+        wsum
+        if wsum >= 0
+            -90
+        else
+            na
+    else
+        na
+        
+
+p1 = plot(-90, color=noColor, display=display.none)
+p2 = plot(-100, color=noColor, display=display.none)
+fill(p1, p2, color=mfi <= 0 ? color.red : color.green, transp=60)
+
+plot(buySignal(wt1, wt2, rsi, mfi), style=6, color=#00ff26, title="Buy signal", linewidth=3)
+
+// Median line
+hline(0, color=color.white, linestyle=hline.style_dotted)
+
+// --------------------------------------------------------------------------
+// WaveTrend
+wtShow = input(true, title = 'Show WaveTrend', type = input.bool)
+wtBuyShow = input(true, title = 'Show Buy dots', type = input.bool)
+wtGoldShow = input(true, title = 'Show Gold dots', type = input.bool)
+wtSellShow = input(true, title = 'Show Sell dots', type = input.bool)
+wtDivShow = input(true, title = 'Show Div. dots', type = input.bool)
+vwapShow = input(true, title = 'Show Fast WT', type = input.bool)
+wtChannelLen = input(9, title = 'WT Channel Length', type = input.integer)
+wtAverageLen = input(12, title = 'WT Average Length', type = input.integer)
+wtMASource = input(hlc3, title = 'WT MA Source', type = input.source)
+wtMALen = input(3, title = 'WT MA Length', type = input.integer)
+
+// WaveTrend Overbought & Oversold lines
+obLevel = input(53, title = 'WT Overbought Level 1', type = input.integer)
+obLevel2 = input(60, title = 'WT Overbought Level 2', type = input.integer)
+obLevel3 = input(100, title = 'WT Overbought Level 3', type = input.integer)
+osLevel = input(-53, title = 'WT Oversold Level 1', type = input.integer)
+osLevel2 = input(-60, title = 'WT Oversold Level 2', type = input.integer)
+osLevel3 = input(-75, title = 'WT Oversold Level 3', type = input.integer)
+
+// Divergence WT
+wtShowDiv = input(true, title = 'Show WT Regular Divergences', type = input.bool)
+wtShowHiddenDiv = input(false, title = 'Show WT Hidden Divergences', type = input.bool)
+showHiddenDiv_nl = input(true, title = 'Not apply OB/OS Limits on Hidden Divergences', type = input.bool)
+wtDivOBLevel = input(45, title = 'WT Bearish Divergence min', type = input.integer)
+wtDivOSLevel = input(-65, title = 'WT Bullish Divergence min', type = input.integer)
+
+// Divergence extra range
+wtDivOBLevel_addshow = input(true, title = 'Show 2nd WT Regular Divergences', type = input.bool)
+wtDivOBLevel_add = input(15, title = 'WT 2nd Bearish Divergence', type = input.integer)
+wtDivOSLevel_add = input(-40, title = 'WT 2nd Bullish Divergence 15 min', type = input.integer)
+
+// Divergence RSI
+rsiShowDiv = input(false, title = 'Show RSI Regular Divergences', type = input.bool)
+rsiShowHiddenDiv = input(false, title = 'Show RSI Hidden Divergences', type = input.bool)
+rsiDivOBLevel = input(60, title = 'RSI Bearish Divergence min', type = input.integer)
+rsiDivOSLevel = input(30, title = 'RSI Bullish Divergence min', type = input.integer)
+
+
+// Colors
+colorRed = #ff0000
+colorPurple = #e600e6
+colorGreen = #3fff00
+colorOrange = #e2a400
+colorYellow = #ffe500
+colorWhite = #ffffff
+colorPink = #ff00f0
+colorBluelight = #31c0ff
+
+colorWT1 = #90caf9
+colorWT2 = #0d47a1
+
+colorWT2_ = #131722
+
+colormacdWT1a = #4caf58
+colormacdWT1b = #af4c4c
+colormacdWT1c = #7ee57e
+colormacdWT1d = #ff3535
+
+colormacdWT2a = #305630
+colormacdWT2b = #310101
+colormacdWT2c = #132213
+colormacdWT2d = #770000
+
+// } PARAMETERS
+
+
+// FUNCTIONS {
+  
+// Divergences 
+f_top_fractal(src) => src[4] < src[2] and src[3] < src[2] and src[2] > src[1] and src[2] > src[0]
+f_bot_fractal(src) => src[4] > src[2] and src[3] > src[2] and src[2] < src[1] and src[2] < src[0]
+f_fractalize(src) => f_top_fractal(src) ? 1 : f_bot_fractal(src) ? -1 : 0
+
+f_findDivs(src, topLimit, botLimit, useLimits) =>
+    fractalTop = f_fractalize(src) > 0 and (useLimits ? src[2] >= topLimit : true) ? src[2] : na
+    fractalBot = f_fractalize(src) < 0 and (useLimits ? src[2] <= botLimit : true) ? src[2] : na
+    highPrev = valuewhen(fractalTop, src[2], 0)[2]
+    highPrice = valuewhen(fractalTop, high[2], 0)[2]
+    lowPrev = valuewhen(fractalBot, src[2], 0)[2]
+    lowPrice = valuewhen(fractalBot, low[2], 0)[2]
+    bearSignal = fractalTop and high[2] > highPrice and src[2] < highPrev
+    bullSignal = fractalBot and low[2] < lowPrice and src[2] > lowPrev
+    bearDivHidden = fractalTop and high[2] < highPrice and src[2] > highPrev
+    bullDivHidden = fractalBot and low[2] > lowPrice and src[2] < lowPrev
+    [fractalTop, fractalBot, lowPrev, bearSignal, bullSignal, bearDivHidden, bullDivHidden]
+        
+   
+// WaveTrend
+f_wavetrend(src, chlen, avg, malen, tf) =>
+    tfsrc = security(syminfo.tickerid, tf, src)
+    esa = ema(tfsrc, chlen)
+    de = ema(abs(tfsrc - esa), chlen)
+    ci = (tfsrc - esa) / (0.015 * de)
+    wt11 = security(syminfo.tickerid, tf, ema(ci, avg))
+    wt22 = security(syminfo.tickerid, tf, sma(wt11, malen))
+    wtVwap = wt11 - wt22
+    wtOversold = wt22 <= osLevel
+    wtOverbought = wt22 >= obLevel
+    wtCross = cross(wt11, wt22)
+    wtCrossUp = wt22 - wt11 <= 0
+    wtCrossDown = wt22 - wt11 >= 0
+    wtCrosslast = cross(wt11[2], wt22[2])
+    wtCrossUplast = wt22[2] - wt11[2] <= 0
+    wtCrossDownlast = wt22[2] - wt11[2] >= 0
+    [wt11, wt22, wtOversold, wtOverbought, wtCross, wtCrossUp, wtCrossDown, wtCrosslast, wtCrossUplast, wtCrossDownlast, wtVwap]
+
+
+// } FUNCTIONS  
+
+// CALCULATE INDICATORS {
+
+
+// Calculates WaveTrend
+[wt11, wt22, wtOversold, wtOverbought, wtCross, wtCrossUp, wtCrossDown, wtCross_last, wtCrossUp_last, wtCrossDown_last, wtVwap] = f_wavetrend(wtMASource, wtChannelLen, wtAverageLen, wtMALen, timeframe.period)
+
+
+
+// WT Divergences
+[wtFractalTop, wtFractalBot, wtLow_prev, wtBearDiv, wtBullDiv, wtBearDivHidden, wtBullDivHidden] = f_findDivs(wt22, wtDivOBLevel, wtDivOSLevel, true)
+    
+[wtFractalTop_add, wtFractalBot_add, wtLow_prev_add, wtBearDiv_add, wtBullDiv_add, wtBearDivHidden_add, wtBullDivHidden_add] =  f_findDivs(wt22, wtDivOBLevel_add, wtDivOSLevel_add, true)
+[wtFractalTop_nl, wtFractalBot_nl, wtLow_prev_nl, wtBearDiv_nl, wtBullDiv_nl, wtBearDivHidden_nl, wtBullDivHidden_nl] =  f_findDivs(wt22, 0, 0, false)
+
+wtBearDivHidden_ = showHiddenDiv_nl ? wtBearDivHidden_nl : wtBearDivHidden
+wtBullDivHidden_ = showHiddenDiv_nl ? wtBullDivHidden_nl : wtBullDivHidden
+
+wtBearDivColor = (wtShowDiv and wtBearDiv) or (wtShowHiddenDiv and wtBearDivHidden_) ? colorRed : na
+wtBullDivColor = (wtShowDiv and wtBullDiv) or (wtShowHiddenDiv and wtBullDivHidden_) ? colorGreen : na
+
+wtBearDivColor_add = (wtShowDiv and (wtDivOBLevel_addshow and wtBearDiv_add)) or (wtShowHiddenDiv and (wtDivOBLevel_addshow and wtBearDivHidden_add)) ? #9a0202 : na
+wtBullDivColor_add = (wtShowDiv and (wtDivOBLevel_addshow and wtBullDiv_add)) or (wtShowHiddenDiv and (wtDivOBLevel_addshow and wtBullDivHidden_add)) ? #1b5e20 : na
+
+// RSI Divergences
+[rsiFractalTop, rsiFractalBot, rsiLow_prev, rsiBearDiv, rsiBullDiv, rsiBearDivHidden, rsiBullDivHidden] = f_findDivs(rsi, rsiDivOBLevel, rsiDivOSLevel, true)
+[rsiFractalTop_nl, rsiFractalBot_nl, rsiLow_prev_nl, rsiBearDiv_nl, rsiBullDiv_nl, rsiBearDivHidden_nl, rsiBullDivHidden_nl] = f_findDivs(rsi, 0, 0, false)
+
+rsiBearDivHidden_ = showHiddenDiv_nl ? rsiBearDivHidden_nl : rsiBearDivHidden
+rsiBullDivHidden_ = showHiddenDiv_nl ? rsiBullDivHidden_nl : rsiBullDivHidden
+
+rsiBearDivColor = (rsiShowDiv and rsiBearDiv) or (rsiShowHiddenDiv and rsiBearDivHidden_) ? colorRed : na
+rsiBullDivColor = (rsiShowDiv and rsiBullDiv) or (rsiShowHiddenDiv and rsiBullDivHidden_) ? colorGreen : na
+
+
+// Small Circles WT Cross
+signalColor = wt22 - wt11 > 0 ? color.red : color.lime
+
+// Buy signal.
+buySignal_2 = wtCross and wtCrossUp and wtOversold
+
+buySignalDiv = (wtShowDiv and wtBullDiv) or 
+               (wtShowDiv and wtBullDiv_add) or 
+               (rsiShowDiv and rsiBullDiv)
+    
+buySignalDiv_color = wtBullDiv ? colorGreen : 
+                     wtBullDiv_add ? color.new(colorGreen, 60) : 
+                     rsiShowDiv ? colorGreen : na
+
+// Sell signal
+sellSignal = wtCross and wtCrossDown and wtOverbought
+             
+sellSignalDiv = (wtShowDiv and wtBearDiv) or 
+               (wtShowDiv and wtBearDiv_add) or
+               (rsiShowDiv and rsiBearDiv)
+                    
+sellSignalDiv_color = wtBearDiv ? colorRed : 
+                     wtBearDiv_add ? color.new(colorRed, 60) : 
+                     rsiBearDiv ? colorRed : na
+
+// Gold Buy 
+lastRsi = valuewhen(wtFractalBot, rsi[2], 0)[2]
+wtGoldBuy = ((wtShowDiv and wtBullDiv) or (rsiShowDiv and rsiBullDiv)) and
+           wtLow_prev <= osLevel3 and
+           wt22 > osLevel3 and
+           wtLow_prev - wt22 <= -5 and
+           lastRsi < 17          
+          
+// } CALCULATE INDICATORS
+
+
+// Circles
+
+plotchar(wtBuyShow and buySignal_2 ? -107 : na, title = 'Buy circle', char='·', color = colorGreen, location = location.absolute, size = size.small, transp = 50)
+plotchar(wtSellShow and sellSignal ? 105 : na , title = 'Sell circle', char='·', color = colorRed, location = location.absolute, size = size.small, transp = 50)
+
+plotchar(wtDivShow and buySignalDiv ? -106 : na, title = 'Divergence buy square', char='▅', color = buySignalDiv_color, location = location.absolute, size = size.tiny, offset = 0, transp = 15)
+plotchar(wtDivShow and sellSignalDiv ? 106 : na, title = 'Divergence sell square', char='▅', color = sellSignalDiv_color, location = location.absolute, size = size.tiny, offset = 0, transp = 15)
+
+plotchar(wtGoldBuy and wtGoldShow ? -106 : na, title = 'Gold  buy gold circle', char='◆', color = colorOrange, location = location.absolute, size = size.tiny, offset = 0, transp = 15)
+
+// } DRAW
+
+
