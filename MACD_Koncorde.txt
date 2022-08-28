@@ -1,0 +1,79 @@
+//@version=5
+indicator(title='Koncord + MACD', shorttitle='MACD + Koncorde')
+
+//KONCORDE
+showkoncorde = input(true, title='Koncorde')
+deltaKon = input(-50, title='KONCORDE - Gap')
+
+calc_mfi(length) =>
+    100.0 - 100.0 / (1.0 + math.sum(volume * (ta.change(hlc3) <= 0 ? 0 : hlc3), length) / math.sum(volume * (ta.change(hlc3) >= 0 ? 0 : hlc3), length))
+
+tprice = ohlc4
+lengthEMA = 255
+m = 15
+pvim = ta.ema(ta.pvi, m)
+pvimax = ta.highest(pvim, 90)
+pvimin = ta.lowest(pvim, 90)
+oscp = (ta.pvi - pvim) * 100 / (pvimax - pvimin)
+nvim = ta.ema(ta.nvi, m)
+nvimax = ta.highest(nvim, 90)
+nvimin = ta.lowest(nvim, 90)
+blue = (ta.nvi - nvim) * 100 / (nvimax - nvimin)
+xmf = calc_mfi(14)
+mult = 2.0
+basis = ta.sma(tprice, 25)
+dev = mult * ta.stdev(tprice, 25)
+upper = basis + dev
+lower = basis - dev
+OB1 = (upper + lower) / 2.0
+OB2 = upper - lower
+BollOsc = (tprice - OB1) / OB2 * 100
+xrsi = ta.rsi(tprice, 14)
+calc_stoch(src, length, smoothFastD) =>
+    ta.sma(100 * (src - ta.lowest(low, length)) / (ta.highest(high, length) - ta.lowest(low, length)), smoothFastD)
+
+stoc = calc_stoch(tprice, 21, 3)
+brown = (xrsi + xmf + BollOsc + stoc / 3) / 2
+green = brown + oscp
+mean = ta.ema(brown, m)
+
+vl = plot(showkoncorde ? green + deltaKon : na, color=color.new(#66FF66, 0), style=plot.style_area, histbase=deltaKon, linewidth=2, title='Koncorde - green')
+ml = plot(showkoncorde ? brown + deltaKon : na, color=color.new(#FFCC99, 0), style=plot.style_area, histbase=deltaKon, linewidth=2, title='Koncorde - brown')
+al = plot(showkoncorde ? blue + deltaKon : na, color=color.new(#00FFFF, 0), style=plot.style_area, histbase=deltaKon, linewidth=2, title='Koncorde - blue')
+plot(showkoncorde ? brown + deltaKon : na, color=color.new(color.maroon, 0), linewidth=2, title='Koncorde - lbrown')
+plot(showkoncorde ? green + deltaKon : na, color=color.new(#006600, 0), linewidth=2, title='Koncorde - linev')
+plot(showkoncorde ? blue + deltaKon : na, color=color.new(#000066, 0), linewidth=2, title='Koncorde - lblue')
+plot(showkoncorde ? mean + deltaKon : na, color=color.new(color.red, 0), linewidth=2, title='Koncorde - mean')
+
+// MACD
+showmacd = input(true, title='MADC')
+deltaMacd = input(300, title='MACD - Gap')
+multMacd = input(17, title='MACD - Scale')
+fast_length = input(title='MACD - Fast Length', defval=12)
+slow_length = input(title='MACD - Slow Length', defval=26)
+src = input(title='MACD - Source', defval=close)
+signal_length = input.int(title='MACD - Signal Smoothing', minval=1, maxval=50, defval=9)
+sma_source = input(title='MACD - Simple MA(Oscillator)', defval=false)
+sma_signal = input(title='MACD - Simple MA(Signal Line)', defval=false)
+
+// Plot colors
+col_grow_above = #26A69A
+col_grow_below = #FFCDD2
+col_fall_above = #B2DFDB
+col_fall_below = #EF5350
+col_macd = #0094ff
+col_signal = #ff6a00
+
+// Calculating
+fast_ma = sma_source ? ta.sma(src, fast_length) : ta.ema(src, fast_length)
+slow_ma = sma_source ? ta.sma(src, slow_length) : ta.ema(src, slow_length)
+macd = (fast_ma - slow_ma) / slow_ma * 1000 * multMacd
+signal = sma_signal ? ta.sma(macd, signal_length) : ta.ema(macd, signal_length)
+hist = macd - signal
+
+plot(showmacd ? hist ? hist + deltaMacd : na : na, title='MACD - Histogram', style=plot.style_columns, color=hist >= 0 ? hist[1] < hist ? col_grow_above : col_fall_above : hist[1] < hist ? col_grow_below : col_fall_below, histbase=deltaMacd)
+plot(showmacd ? macd ? macd + deltaMacd : na : na, title='MACD', color=color.new(col_macd, 0))
+plot(showmacd ? signal ? signal + deltaMacd : na : na, title='MACD - Signal', color=color.new(col_signal, 0))
+
+
+
