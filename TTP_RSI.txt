@@ -1,0 +1,205 @@
+//@version=5
+indicator("TTP PNR filter + RSI Divergence Indicator", format=format.price, timeframe="", timeframe_gaps=true)
+len = input(14, title="RSI Period")
+src1 = input(close, title="RSI Source")
+lbR = input(5, title="Pivot Lookback Right")
+lbL = input(5, title="Pivot Lookback Left")
+rangeUpper = input(60, title="Max of Lookback Range")
+rangeLower = input(5, title="Min of Lookback Range")
+plotBull = input(true, title="Plot Bullish")
+plotHiddenBull = input(false, title="Plot Hidden Bullish")
+plotBear = input(true, title="Plot Bearish")
+plotHiddenBear = input(false, title="Plot Hidden Bearish")
+bearColor = color.red
+bullColor = color.green
+hiddenBullColor = color.new(color.green, 80)
+hiddenBearColor = color.new(color.red, 80)
+textColor = color.white
+noneColor = color.new(color.white, 100)
+osc = ta.rsi(src1, len)
+
+plot(osc, title="RSI", linewidth=2, color=#2962FF)
+hline(50, title="Middle Line", color=#787B86, linestyle=hline.style_dotted)
+obLevel = hline(70, title="Overbought", color=#787B86, linestyle=hline.style_dotted)
+osLevel = hline(30, title="Oversold", color=#787B86, linestyle=hline.style_dotted)
+fill(obLevel, osLevel, title="Background", color=color.rgb(33, 150, 243, 90))
+
+plFound = na(ta.pivotlow(osc, lbL, lbR)) ? false : true
+phFound = na(ta.pivothigh(osc, lbL, lbR)) ? false : true
+_inRange(cond) =>
+    bars = ta.barssince(cond == true)
+    rangeLower <= bars and bars <= rangeUpper
+
+// Regular Bullish
+// Osc: Higher Low
+oscHL = osc[lbR] > ta.valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+// Price: Lower Low
+priceLL = low[lbR] < ta.valuewhen(plFound, low[lbR], 1)
+bullCondAlert = priceLL and oscHL and plFound
+bullCond = plotBull and bullCondAlert
+
+plot(plFound ? osc[lbR] : na, offset=-lbR, title="Regular Bullish", linewidth=2, color=(bullCond ? bullColor : noneColor))
+
+plotshape(
+         bullCond ? osc[lbR] : na,
+         offset=-lbR,
+         title="Regular Bullish Label",
+         text=" Bull ",
+         style=shape.labelup,
+         location=location.absolute,
+         color=bullColor,
+         textcolor=textColor
+         )
+
+// Hidden Bullish
+// Osc: Lower Low
+oscLL = osc[lbR] < ta.valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+// Price: Higher Low
+priceHL = low[lbR] > ta.valuewhen(plFound, low[lbR], 1)
+hiddenBullCondAlert = priceHL and oscLL and plFound
+hiddenBullCond = plotHiddenBull and hiddenBullCondAlert
+
+plot(
+     plFound ? osc[lbR] : na,
+     offset=-lbR,
+     title="Hidden Bullish",
+     linewidth=2,
+     color=(hiddenBullCond ? hiddenBullColor : noneColor)
+     )
+
+plotshape(
+         hiddenBullCond ? osc[lbR] : na,
+         offset=-lbR,
+         title="Hidden Bullish Label",
+         text=" H Bull ",
+         style=shape.labelup,
+         location=location.absolute,
+         color=bullColor,
+         textcolor=textColor
+         )
+
+// Regular Bearish
+// Osc: Lower High
+oscLH = osc[lbR] < ta.valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+// Price: Higher High
+priceHH = high[lbR] > ta.valuewhen(phFound, high[lbR], 1)
+bearCondAlert = priceHH and oscLH and phFound
+bearCond = plotBear and bearCondAlert
+
+plot(
+     phFound ? osc[lbR] : na,
+     offset=-lbR,
+     title="Regular Bearish",
+     linewidth=2,
+     color=(bearCond ? bearColor : noneColor)
+     )
+
+plotshape(
+         bearCond ? osc[lbR] : na,
+         offset=-lbR,
+         title="Regular Bearish Label",
+         text=" Bear ",
+         style=shape.labeldown,
+         location=location.absolute,
+         color=bearColor,
+         textcolor=textColor
+         )
+
+// Hidden Bearish
+// Osc: Higher High
+oscHH = osc[lbR] > ta.valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+// Price: Lower High
+priceLH = high[lbR] < ta.valuewhen(phFound, high[lbR], 1)
+hiddenBearCondAlert = priceLH and oscHH and phFound
+hiddenBearCond = plotHiddenBear and hiddenBearCondAlert
+
+plot(
+     phFound ? osc[lbR] : na,
+     offset=-lbR,
+     title="Hidden Bearish",
+     linewidth=2,
+     color=(hiddenBearCond ? hiddenBearColor : noneColor)
+     )
+
+plotshape(
+         hiddenBearCond ? osc[lbR] : na,
+         offset=-lbR,
+         title="Hidden Bearish Label",
+         text=" H Bear ",
+         style=shape.labeldown,
+         location=location.absolute,
+         color=bearColor,
+         textcolor=textColor
+         )
+
+alertcondition(bullCondAlert, title='Regular Bullish Divergence', message="Found a new Regular Bullish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar")
+alertcondition(hiddenBullCondAlert, title='Hidden Bullish Divergence', message='Found a new Hidden Bullish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar')
+alertcondition(bearCondAlert, title='Regular Bearish Divergence', message='Found a new Regular Bearish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar')
+alertcondition(hiddenBearCondAlert, title='Hidden Bearisn Divergence', message='Found a new Hidden Bearisn Divergence, `Pivot Lookback Right` number of bars to the left of the current bar')
+
+//#######################
+// TTP PNR
+length = input(200)
+plow = input.float(0.0,"Percentile low",minval=0,maxval=100, inline = "a")
+phigh = input.float(1.0,"Percentile high",minval=0,maxval=100, inline = "a")
+
+// Options for source
+sourceOptions = input.string("RSI", "Source", options=["RSI", "close", "open", "high", "low", "hl2", "hlc3", "ohlc4"])
+
+// Select source
+src = sourceOptions == "RSI" ? ta.rsi(close, len) : ta.sma(close, len)
+
+valuelow = ta.percentile_nearest_rank(src, length , plow)
+valuehigh = ta.percentile_nearest_rank(src, length , phigh)
+a = plot(ta.percentile_nearest_rank(src, length , plow),"% low", color=color.new(color.green,50))
+b = plot(ta.percentile_nearest_rank(src, length , phigh), "% high" , color=color.new(color.red,30))
+fill(a, b, color=color.new(color.green,50))
+plot(src, "src", color=color.white)
+
+signaldirection = input.string("X over", "Direction", options = ["X over", "X under", "Below", "Above"], group = "signal")
+signalsource    = input.string("% low", options = ["% low", "% high"], group = "signal") == "% low" ? valuelow : valuehigh
+
+bool signal = switch signaldirection
+    "X over" => ta.crossover(src, signalsource)
+    "X under" => ta.crossunder(src, signalsource)
+    "Below" => src < signalsource
+    "Above" => src > signalsource
+    => false
+
+plot(signal ? 1 : na, "signal", display = display.data_window)
+
+long = signaldirection == "X over" or signaldirection == "Above" 
+short = not long
+indicatorCondition = signal
+indicatorValue = src
+plotIndicator = true
+indicatorName = "PNR"
+plotSignal = true
+plotBackground = true
+signalValue = src
+
+color triggerColor   = long ? color.lime : color.red
+
+// Plot Character
+plotchar(            series    = signal and long ? src : na, 
+                     title     = "Entry long", 
+                     char      = ".", 
+                     location  = location.absolute, 
+                     color     = triggerColor,
+                     textcolor = color.white, 
+                     size      = size.large, 
+                     display   = display.all - display.data_window)
+
+plotchar(            series    = signal and short ? src : na, 
+                     title     = "Entry short", 
+                     char      = ".", 
+                     location  = location.absolute, 
+                     color     = triggerColor,
+                     textcolor = color.white, 
+                     size      = size.large, 
+                     display   = display.all - display.data_window)
+
+alertcondition(signal,"PNR Signal")
+
+
+
