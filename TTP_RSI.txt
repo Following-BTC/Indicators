@@ -1,4 +1,6 @@
 //@version=5
+// © TheTradingParrot
+
 indicator("TTP PNR filter + RSI Divergence Indicator", format=format.price, timeframe="", timeframe_gaps=true)
 len = input(14, title="RSI Period")
 src1 = input(close, title="RSI Source")
